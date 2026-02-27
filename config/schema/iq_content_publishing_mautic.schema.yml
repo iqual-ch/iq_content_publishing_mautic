@@ -1,0 +1,30 @@
+iq_content_publishing_mautic.credentials.mautic:
+  type: mapping
+  label: 'Mautic credentials'
+  mapping:
+    connection_id:
+      type: string
+      label: 'Mautic API Connection ID'
+
+iq_content_publishing_mautic.settings.mautic:
+  type: mapping
+  label: 'Mautic platform settings'
+  mapping:
+    segment_id:
+      type: integer
+      label: 'Mautic segment ID to send to'
+    from_name:
+      type: string
+      label: 'From name'
+    from_address:
+      type: string
+      label: 'From email address'
+    reply_to:
+      type: string
+      label: 'Reply-to email address'
+    email_type:
+      type: string
+      label: 'Email type (list or template)'
+    send_immediately:
+      type: boolean
+      label: 'Send email immediately after creation'

@@ -1,0 +1,27 @@
+{
+  "name": "iqual/iq_content_publishing_mautic",
+  "type": "drupal-module",
+  "description": "Provides Mautic email integration for the Content Publishing framework. Enables creating and sending Mautic emails from Drupal node content using AI-generated newsletter content.",
+  "keywords": [
+    "Drupal",
+    "Mautic",
+    "newsletter",
+    "email campaign",
+    "content publishing",
+    "marketing automation"
+  ],
+  "license": "GPL-2.0-or-later",
+  "homepage": "https://github.com/iqual-ch/iq_content_publishing_mautic",
+  "minimum-stability": "dev",
+  "require": {
+    "drupal/core": "^11",
+    "drupal/mautic_api": "^2.0",
+    "iqual/iq_content_publishing": "^1"
+  },
+  "extra": {
+    "drupal": {
+      "version": "VERSION",
+      "datestamp": ""
+    }
+  }
+}

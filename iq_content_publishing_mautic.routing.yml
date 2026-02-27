@@ -1,0 +1,15 @@
+iq_content_publishing_mautic.fetch_segments:
+  path: '/admin/config/content-publishing/mautic/fetch-segments/{platform_config}'
+  defaults:
+    _controller: '\Drupal\iq_content_publishing_mautic\Controller\MauticSettingsController::fetchSegments'
+    _title: 'Fetch Mautic Segments'
+  requirements:
+    _permission: 'administer content publishing'
+
+iq_content_publishing_mautic.fetch_emails:
+  path: '/admin/config/content-publishing/mautic/fetch-emails/{platform_config}'
+  defaults:
+    _controller: '\Drupal\iq_content_publishing_mautic\Controller\MauticSettingsController::fetchEmails'
+    _title: 'Fetch Mautic Emails'
+  requirements:
+    _permission: 'administer content publishing'

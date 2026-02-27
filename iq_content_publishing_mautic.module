@@ -1,0 +1,52 @@
+<?php
+
+/**
+ * @file
+ * Mautic email integration for the Content Publishing framework.
+ */
+
+declare(strict_types=1);
+
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Url;
+
+/**
+ * Implements hook_entity_operation().
+ *
+ * Adds Mautic-specific operations (Fetch Segments, Fetch Emails)
+ * to Mautic platform config entities on the admin list.
+ */
+function iq_content_publishing_mautic_entity_operation(EntityInterface $entity): array {
+  $operations = [];
+
+  if ($entity->getEntityTypeId() !== 'publishing_platform') {
+    return $operations;
+  }
+
+  /** @var \Drupal\iq_content_publishing\Entity\PublishingPlatformConfigInterface $entity */
+  if ($entity->getPluginId() !== 'mautic') {
+    return $operations;
+  }
+
+  $credentials = $entity->getCredentials();
+
+  if (!empty($credentials['connection_id'])) {
+    $operations['mautic_fetch_segments'] = [
+      'title' => t('Fetch Segments'),
+      'url' => Url::fromRoute('iq_content_publishing_mautic.fetch_segments', [
+        'platform_config' => $entity->id(),
+      ]),
+      'weight' => 50,
+    ];
+
+    $operations['mautic_fetch_emails'] = [
+      'title' => t('Fetch Emails'),
+      'url' => Url::fromRoute('iq_content_publishing_mautic.fetch_emails', [
+        'platform_config' => $entity->id(),
+      ]),
+      'weight' => 51,
+    ];
+  }
+
+  return $operations;
+}

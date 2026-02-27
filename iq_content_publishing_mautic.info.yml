@@ -1,0 +1,8 @@
+name: 'Content Publishing: Mautic'
+type: module
+description: 'Provides Mautic email integration for the Content Publishing framework. Enables creating and sending Mautic emails from Drupal node content using AI-generated newsletter content.'
+package: 'Content Publishing'
+core_version_requirement: ^11
+dependencies:
+  - iq_content_publishing:iq_content_publishing
+  - mautic_api:mautic_api

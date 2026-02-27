@@ -1,0 +1,7 @@
+services:
+  iq_content_publishing_mautic.api_client:
+    class: Drupal\iq_content_publishing_mautic\Service\MauticApiClient
+    arguments:
+      - '@logger.factory'
+      - '@entity_type.manager'
+      - '@mautic_api.connector'
