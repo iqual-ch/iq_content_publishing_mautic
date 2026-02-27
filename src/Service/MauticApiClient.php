@@ -7,7 +7,7 @@ namespace Drupal\iq_content_publishing_mautic\Service;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\mautic_api\Entity\MauticApiConnectionInterface;
-use Drupal\mautic_api\Service\MauticApiConnector;
+use Drupal\mautic_api\MauticApiConnector;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -30,7 +30,7 @@ final class MauticApiClient {
    *   The logger factory.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
    *   The entity type manager.
-   * @param \Drupal\mautic_api\Service\MauticApiConnector $mauticConnector
+   * @param \Drupal\mautic_api\MauticApiConnector $mauticConnector
    *   The Mautic API connector service.
    */
   public function __construct(
