@@ -74,7 +74,7 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
         'description' => (string) $this->t('The main HTML content of the email. Use well-structured HTML suitable for email clients.'),
         'required' => TRUE,
         'ai_generated' => TRUE,
-        'format' => 'full_html',
+        'format' => 'easy_email',
       ],
       'plain_text' => [
         'type' => 'textarea',
