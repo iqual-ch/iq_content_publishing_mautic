@@ -69,11 +69,12 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
         'ai_generated' => TRUE,
       ],
       'html_body' => [
-        'type' => 'textarea',
+        'type' => 'text_format',
         'label' => (string) $this->t('Email HTML body'),
         'description' => (string) $this->t('The main HTML content of the email. Use well-structured HTML suitable for email clients.'),
         'required' => TRUE,
         'ai_generated' => TRUE,
+        'format' => 'full_html',
       ],
       'plain_text' => [
         'type' => 'textarea',
