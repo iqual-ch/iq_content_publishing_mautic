@@ -244,7 +244,7 @@ INSTRUCTIONS;
   /**
    * {@inheritdoc}
    */
-  public function publish(NodeInterface $node, array $fields, array $credentials, array $settings): PublishingResult {
+  public function publish(NodeInterface $node, array $fields, array $credentials, array $settings, string|int|null $toolId = NULL): PublishingResult {
     $connectionId = $credentials['connection_id'] ?? '';
     if (empty($connectionId)) {
       return PublishingResult::failure(
