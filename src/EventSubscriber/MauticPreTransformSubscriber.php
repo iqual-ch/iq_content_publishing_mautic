@@ -64,16 +64,17 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
 
 
 --- MAUTIC EMAIL TEMPLATE CONTEXT ---
-A Mautic email template is configured. Your generated HTML content will replace
-the placeholder token "{$contentToken}" inside the template HTML below.
+A Mautic email template is configured.
 
 Analyze the template's structure, styling, colors, fonts, and design patterns,
 then generate inner content that visually integrates with it. Specifically:
 - Match the template's color scheme and font choices (use the same inline CSS patterns).
 - Use compatible table-based layout widths (look at the template's content width).
 - Do NOT duplicate elements the template already provides (e.g., header, footer,
-  unsubscribe links, web view links, logo, company info).
-- Generate ONLY the inner content that replaces "{$contentToken}".
+  unsubscribe links, web view links, logo, company info) and do NOT change them.
+- If the template include a header image, replace it with one of the images extracted from the content.
+  Else keep the header image from the template.
+- Generate the inner content using the same kind of components than the template.
 
 Template HTML:
 ```html

@@ -303,14 +303,6 @@ INSTRUCTIONS;
         '#parents' => ['plugin_settings', '_template_loaded_id'],
       ];
 
-      $form['template_wrapper']['template_content_token'] = [
-        '#type' => 'textfield',
-        '#title' => $this->t('Template content placeholder'),
-        '#description' => $this->t('The placeholder token in the template HTML that marks where AI-generated content is injected. Ensure this exact string exists in the template HTML below.'),
-        '#default_value' => $settings['template_content_token'] ?? '{custom_content}',
-        '#parents' => ['plugin_settings', 'template_content_token'],
-      ];
-
       if (!empty($templateHtml)) {
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
