@@ -317,7 +317,7 @@ INSTRUCTIONS;
           '#title' => $this->t('Template HTML content'),
           '#description' => $this->t('The HTML of the selected Mautic template email. You can edit it here — this version will be used at publish time. Make sure it contains the placeholder token above where the AI-generated content should be injected.'),
           '#default_value' => $templateHtml,
-          '#format' => 'full_html',
+          '#format' => 'easy_email',
           '#parents' => ['plugin_settings', 'template_html'],
           '#rows' => 20,
         ];
