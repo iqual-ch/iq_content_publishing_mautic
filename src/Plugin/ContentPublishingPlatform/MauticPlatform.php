@@ -186,7 +186,7 @@ INSTRUCTIONS;
   /**
    * {@inheritdoc}
    */
-  public function buildSettingsForm(array $form, array $settings): array {
+  public function buildSettingsForm(array $form, array $settings, array $credentials = []): array {
     $form['segment_id'] = [
       '#type' => 'number',
       '#title' => $this->t('Segment ID'),
@@ -263,6 +263,8 @@ INSTRUCTIONS;
         ],
       ],
     ];
+
+    $templates = $this->apiClient->getTemplateEmails($credentials['connection_id'] ?? '');
 
     return $form;
   }
