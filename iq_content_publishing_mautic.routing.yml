@@ -13,3 +13,11 @@ iq_content_publishing_mautic.fetch_emails:
     _title: 'Fetch Mautic Emails'
   requirements:
     _permission: 'administer content publishing'
+
+iq_content_publishing_mautic.fetch_templates:
+  path: '/admin/config/content-publishing/mautic/fetch-templates/{platform_config}'
+  defaults:
+    _controller: '\Drupal\iq_content_publishing_mautic\Controller\MauticSettingsController::fetchTemplates'
+    _title: 'Fetch Mautic Templates'
+  requirements:
+    _permission: 'administer content publishing'

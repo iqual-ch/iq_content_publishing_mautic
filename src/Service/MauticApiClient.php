@@ -42,6 +42,16 @@ final class MauticApiClient {
   }
 
   /**
+   * Gets the logger instance.
+   *
+   * @return \Psr\Log\LoggerInterface
+   *   The logger.
+   */
+  public function getLogger(): LoggerInterface {
+    return $this->logger;
+  }
+
+  /**
    * Loads a Mautic API connection entity.
    *
    * @param string $connectionId
@@ -400,6 +410,78 @@ final class MauticApiClient {
       ]);
       return [];
     }
+  }
+
+  /**
+   * Retrieves the list of template-type emails from Mautic.
+   *
+   * Template emails can be used as layout wrappers for AI-generated content.
+   * They are expected to contain a content placeholder token that will be
+   * replaced with the generated HTML body.
+   *
+   * @param string $connectionId
+   *   The Mautic API connection entity ID.
+   *
+   * @return array
+   *   Array of template emails, each with keys: id, name, subject, customHtml.
+   */
+  public function getTemplateEmails(string $connectionId): array {
+    $api = $this->getApiContext($connectionId, 'emails');
+    if (!$api) {
+      return [];
+    }
+
+    try {
+      $response = $api->getList('', 0, 200, 'email:name:ASC', [
+        'where' => [
+          [
+            'col' => 'emailType',
+            'expr' => 'eq',
+            'val' => 'template',
+          ],
+        ],
+      ]);
+      $emails = [];
+
+      $list = $response[$api->listName()] ?? $response['emails'] ?? [];
+      foreach ($list as $email) {
+        $emails[] = [
+          'id' => $email['id'] ?? '',
+          'name' => $email['name'] ?? '',
+          'subject' => $email['subject'] ?? '',
+          'customHtml' => $email['customHtml'] ?? '',
+          'isPublished' => $email['isPublished'] ?? FALSE,
+        ];
+      }
+
+      return $emails;
+    }
+    catch (\Exception $e) {
+      $this->logger->error('Failed to fetch Mautic template emails: @message', [
+        '@message' => $e->getMessage(),
+      ]);
+      return [];
+    }
+  }
+
+  /**
+   * Fetches the HTML content of a specific Mautic email.
+   *
+   * @param string $connectionId
+   *   The Mautic API connection entity ID.
+   * @param int $emailId
+   *   The Mautic email ID.
+   *
+   * @return string|null
+   *   The email's customHtml content, or NULL on failure.
+   */
+  public function getEmailHtml(string $connectionId, int $emailId): ?string {
+    $email = $this->getEmail($connectionId, $emailId);
+    if (!$email) {
+      return NULL;
+    }
+
+    return $email['customHtml'] ?? NULL;
   }
 
   /**

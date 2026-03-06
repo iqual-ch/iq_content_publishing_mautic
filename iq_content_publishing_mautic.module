@@ -46,6 +46,14 @@ function iq_content_publishing_mautic_entity_operation(EntityInterface $entity):
       ]),
       'weight' => 51,
     ];
+
+    $operations['mautic_fetch_templates'] = [
+      'title' => t('Fetch Templates'),
+      'url' => Url::fromRoute('iq_content_publishing_mautic.fetch_templates', [
+        'platform_config' => $entity->id(),
+      ]),
+      'weight' => 52,
+    ];
   }
 
   return $operations;

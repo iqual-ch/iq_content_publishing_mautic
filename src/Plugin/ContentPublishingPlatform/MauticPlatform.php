@@ -99,13 +99,20 @@ Guidelines:
 - Create an HTML email body that is well-structured and email-client friendly.
 - Use simple, inline CSS for styling (no external stylesheets).
 - Use table-based layouts for maximum email client compatibility.
+- Design a visually appealing layout with a clear visual hierarchy.
+- Use professional typography and spacing.
+- Include a header area with the newsletter title/branding.
 - Include a clear call-to-action linking to the original content.
 - Keep paragraphs short and scannable.
 - Maintain a professional yet engaging tone.
 - Include the content URL as a "Read more" link.
-- Do NOT include <html>, <head>, or <body> tags — only the inner content.
 - You may use Mautic tokens like {contactfield=firstname} for personalization.
 - Also generate a plain-text version without HTML markup.
+
+CRITICAL: Generate ONLY the inner email content — do NOT include <html>, <head>,
+or <body> tags. The output will be automatically wrapped in a complete HTML email
+document structure or injected into a Mautic template. Focus on creating rich,
+well-designed content using table-based layouts with inline CSS.
 
 Available tokens:
 - [node:title] — The content title.
@@ -227,6 +234,36 @@ INSTRUCTIONS;
       '#default_value' => $settings['send_immediately'] ?? FALSE,
     ];
 
+    // Template settings fieldset.
+    $form['template_wrapper'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Email layout template'),
+      '#open' => !empty($settings['template_email_id']),
+      '#description' => $this->t('Optionally use an existing Mautic email as a layout template. The template provides the outer HTML structure (header, footer, branding) and the AI-generated content is injected into it.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The AI-generated content replaces the placeholder token in the template email\'s HTML.'),
+    ];
+
+    $form['template_wrapper']['template_email_id'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Template email ID'),
+      '#description' => $this->t('The ID of an existing Mautic template-type email to use as the layout wrapper. Leave empty for standalone mode (the AI content will be wrapped in a responsive HTML email document automatically). Use the "Fetch Templates" operation to discover available template emails and their IDs.'),
+      '#default_value' => $settings['template_email_id'] ?? NULL,
+      '#min' => 0,
+      '#parents' => ['settings', 'template_email_id'],
+    ];
+
+    $form['template_wrapper']['template_content_token'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Template content placeholder'),
+      '#description' => $this->t('The placeholder token in the template email\'s HTML that marks where AI-generated content is injected. Place this exact string in your Mautic template email where the main content should appear.'),
+      '#default_value' => $settings['template_content_token'] ?? '{custom_content}',
+      '#parents' => ['settings', 'template_content_token'],
+      '#states' => [
+        'visible' => [
+          ':input[name="settings[template_email_id]"]' => ['filled' => TRUE],
+        ],
+      ],
+    ];
+
     return $form;
   }
 
@@ -273,6 +310,37 @@ INSTRUCTIONS;
 
     $plainText = $fields['plain_text'] ?? '';
     $emailType = $settings['email_type'] ?? 'list';
+
+    // Determine final HTML: either inject into a Mautic template or wrap in
+    // a standalone responsive email document.
+    $templateEmailId = !empty($settings['template_email_id']) ? (int) $settings['template_email_id'] : 0;
+    if ($templateEmailId > 0) {
+      // Template mode: fetch the template email and inject AI content.
+      $templateHtml = $this->apiClient->getEmailHtml($connectionId, $templateEmailId);
+      if ($templateHtml === NULL) {
+        return PublishingResult::failure(
+          'Failed to fetch the template email (ID: ' . $templateEmailId . ') from Mautic. Verify the template email ID exists and the API connection is working.',
+          ['error' => 'template_fetch_failed', 'template_email_id' => $templateEmailId]
+        );
+      }
+
+      $contentToken = $settings['template_content_token'] ?? '{custom_content}';
+      if (str_contains($templateHtml, $contentToken)) {
+        $htmlBody = str_replace($contentToken, $htmlBody, $templateHtml);
+      }
+      else {
+        $this->apiClient->getLogger()->warning('Template email @id does not contain the placeholder token "@token". AI-generated content will be used in standalone mode as fallback.', [
+          '@id' => $templateEmailId,
+          '@token' => $contentToken,
+        ]);
+        // Fallback to standalone mode when placeholder is missing.
+        $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
+      }
+    }
+    else {
+      // Standalone mode: wrap AI inner content in a full HTML email document.
+      $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
+    }
 
     // Build the email data payload for the Mautic API.
     $emailData = [
@@ -360,6 +428,79 @@ INSTRUCTIONS;
         'status' => 'created',
       ]
     );
+  }
+
+  /**
+   * Wraps AI-generated inner HTML content in a complete email document.
+   *
+   * Produces a responsive, email-client-compatible HTML document structure
+   * with a centered content area. Used when no Mautic template is selected
+   * (standalone mode).
+   *
+   * @param string $innerHtml
+   *   The AI-generated inner HTML content.
+   * @param string $subject
+   *   The email subject line, used as the document title.
+   *
+   * @return string
+   *   A complete HTML email document.
+   */
+  protected function buildStandaloneEmailHtml(string $innerHtml, string $subject): string {
+    $escapedSubject = htmlspecialchars($subject, ENT_QUOTES, 'UTF-8');
+
+    return <<<HTML
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+  <title>{$escapedSubject}</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+    body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
+    a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; font-size: inherit !important; font-family: inherit !important; font-weight: inherit !important; line-height: inherit !important; }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, Helvetica, sans-serif; -webkit-font-smoothing: antialiased;">
+  <!-- Outer wrapper table for background color -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f4f4;">
+    <tr>
+      <td align="center" style="padding: 20px 10px;">
+        <!-- Inner content container -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 4px;">
+          <tr>
+            <td style="padding: 30px 40px; font-size: 16px; line-height: 1.6; color: #333333;">
+              {$innerHtml}
+            </td>
+          </tr>
+        </table>
+        <!-- Footer area -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%;">
+          <tr>
+            <td align="center" style="padding: 20px 40px; font-size: 12px; line-height: 1.5; color: #999999;">
+              {unsubscribe_text} | {webview_text}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+HTML;
   }
 
 }

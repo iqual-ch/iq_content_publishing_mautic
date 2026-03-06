@@ -28,3 +28,9 @@ iq_content_publishing_mautic.settings.mautic:
     send_immediately:
       type: boolean
       label: 'Send email immediately after creation'
+    template_email_id:
+      type: integer
+      label: 'Mautic template email ID for layout wrapping'
+    template_content_token:
+      type: string
+      label: 'Placeholder token in template HTML for content injection'
