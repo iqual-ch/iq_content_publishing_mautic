@@ -187,13 +187,35 @@ INSTRUCTIONS;
    * {@inheritdoc}
    */
   public function buildSettingsForm(array $form, array $settings, array $credentials = []): array {
-    $form['segment_id'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Segment ID'),
-      '#description' => $this->t('The Mautic segment ID to send the email to. Use the "Fetch Segments" operation from the platform list to discover your segment IDs.'),
-      '#default_value' => $settings['segment_id'] ?? NULL,
-      '#min' => 0,
-    ];
+    // Build segment options from Mautic API.
+    $connectionId = $credentials['connection_id'] ?? '';
+    $segmentOptions = [];
+    if (!empty($connectionId)) {
+      $segments = $this->apiClient->getSegments($connectionId);
+      foreach ($segments as $segment) {
+        $segmentOptions[$segment['id']] = $segment['name'];
+      }
+    }
+
+    if (!empty($segmentOptions)) {
+      $form['segment_id'] = [
+        '#type' => 'select',
+        '#title' => $this->t('Segment'),
+        '#description' => $this->t('The Mautic segment to send the email to.'),
+        '#options' => $segmentOptions,
+        '#default_value' => $settings['segment_id'] ?? NULL,
+        '#empty_option' => $this->t('- None -'),
+      ];
+    }
+    else {
+      $form['segment_id'] = [
+        '#type' => 'number',
+        '#title' => $this->t('Segment ID'),
+        '#description' => $this->t('The Mautic segment ID to send the email to. Save the platform with a valid connection first to load segments automatically.'),
+        '#default_value' => $settings['segment_id'] ?? NULL,
+        '#min' => 0,
+      ];
+    }
 
     $form['from_name'] = [
       '#type' => 'textfield',
