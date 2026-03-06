@@ -34,3 +34,16 @@ iq_content_publishing_mautic.settings.mautic:
     template_content_token:
       type: string
       label: 'Placeholder token in template HTML for content injection'
+    template_html:
+      type: mapping
+      label: 'Stored template HTML content'
+      mapping:
+        value:
+          type: string
+          label: 'HTML value'
+        format:
+          type: string
+          label: 'Text format'
+    _template_loaded_id:
+      type: integer
+      label: 'Template ID for which HTML was last loaded'

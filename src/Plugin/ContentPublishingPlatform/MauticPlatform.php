@@ -245,24 +245,68 @@ INSTRUCTIONS;
     $form['template_wrapper']['template_email_id'] = [
       '#type' => 'number',
       '#title' => $this->t('Template email ID'),
-      '#description' => $this->t('The ID of an existing Mautic template-type email to use as the layout wrapper. Leave empty for standalone mode (the AI content will be wrapped in a responsive HTML email document automatically). Use the "Fetch Templates" operation to discover available template emails and their IDs.'),
+      '#description' => $this->t('The ID of an existing Mautic template-type email to use as the layout wrapper. Leave empty for standalone mode. Use the "Fetch Templates" operation to discover available IDs.'),
       '#default_value' => $settings['template_email_id'] ?? NULL,
       '#min' => 0,
-      '#parents' => ['settings', 'template_email_id'],
-    ];
-
-    $form['template_wrapper']['template_content_token'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Template content placeholder'),
-      '#description' => $this->t('The placeholder token in the template email\'s HTML that marks where AI-generated content is injected. Place this exact string in your Mautic template email where the main content should appear.'),
-      '#default_value' => $settings['template_content_token'] ?? '{custom_content}',
-      '#parents' => ['settings', 'template_content_token'],
-      '#states' => [
-        'visible' => [
-          ':input[name="settings[template_email_id]"]' => ['filled' => TRUE],
-        ],
+      '#parents' => ['plugin_settings', 'template_email_id'],
+      '#ajax' => [
+        'callback' => '::pluginSettingsAjax',
+        'wrapper' => 'plugin-settings-wrapper',
+        'event' => 'change',
       ],
     ];
+
+    // Show template HTML editor and related fields when a template ID is set.
+    $templateEmailId = !empty($settings['template_email_id']) ? (int) $settings['template_email_id'] : 0;
+    $connectionId = $credentials['connection_id'] ?? '';
+
+    if ($templateEmailId > 0 && !empty($connectionId)) {
+      // Determine whether to use stored HTML or fetch fresh from Mautic.
+      $storedLoadedId = (int) ($settings['_template_loaded_id'] ?? 0);
+      if ($storedLoadedId === $templateEmailId && !empty($settings['template_html'])) {
+        // Same template ID — reuse stored/edited HTML.
+        $templateHtml = is_array($settings['template_html'])
+          ? ($settings['template_html']['value'] ?? '')
+          : (string) $settings['template_html'];
+      }
+      else {
+        // New template ID — fetch from Mautic API.
+        $templateHtml = $this->apiClient->getEmailHtml($connectionId, $templateEmailId) ?? '';
+      }
+
+      // Track which template ID the HTML belongs to, to detect changes.
+      $form['template_wrapper']['_template_loaded_id'] = [
+        '#type' => 'hidden',
+        '#value' => $templateEmailId,
+        '#parents' => ['plugin_settings', '_template_loaded_id'],
+      ];
+
+      $form['template_wrapper']['template_content_token'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Template content placeholder'),
+        '#description' => $this->t('The placeholder token in the template HTML that marks where AI-generated content is injected. Ensure this exact string exists in the template HTML below.'),
+        '#default_value' => $settings['template_content_token'] ?? '{custom_content}',
+        '#parents' => ['plugin_settings', 'template_content_token'],
+      ];
+
+      if (!empty($templateHtml)) {
+        $form['template_wrapper']['template_html'] = [
+          '#type' => 'text_format',
+          '#title' => $this->t('Template HTML content'),
+          '#description' => $this->t('The HTML of the selected Mautic template email. You can edit it here — this version will be used at publish time. Make sure it contains the placeholder token above where the AI-generated content should be injected.'),
+          '#default_value' => $templateHtml,
+          '#format' => 'full_html',
+          '#parents' => ['plugin_settings', 'template_html'],
+          '#rows' => 20,
+        ];
+      }
+      else {
+        $form['template_wrapper']['template_fetch_error'] = [
+          '#type' => 'item',
+          '#markup' => '<div class="messages messages--error">' . $this->t('Could not fetch template email (ID: @id). Verify the ID exists and the API connection is working.', ['@id' => $templateEmailId]) . '</div>',
+        ];
+      }
+    }
 
     $templates = $this->apiClient->getTemplateEmails($credentials['connection_id'] ?? '');
 
@@ -317,9 +361,20 @@ INSTRUCTIONS;
     // a standalone responsive email document.
     $templateEmailId = !empty($settings['template_email_id']) ? (int) $settings['template_email_id'] : 0;
     if ($templateEmailId > 0) {
-      // Template mode: fetch the template email and inject AI content.
-      $templateHtml = $this->apiClient->getEmailHtml($connectionId, $templateEmailId);
-      if ($templateHtml === NULL) {
+      // Template mode: use stored template HTML, falling back to API fetch.
+      $templateHtml = '';
+      if (!empty($settings['template_html'])) {
+        $templateHtml = is_array($settings['template_html'])
+          ? ($settings['template_html']['value'] ?? '')
+          : (string) $settings['template_html'];
+      }
+
+      // Fallback: fetch from Mautic if no stored HTML.
+      if (empty($templateHtml)) {
+        $templateHtml = $this->apiClient->getEmailHtml($connectionId, $templateEmailId) ?? '';
+      }
+
+      if (empty($templateHtml)) {
         return PublishingResult::failure(
           'Failed to fetch the template email (ID: ' . $templateEmailId . ') from Mautic. Verify the template email ID exists and the API connection is working.',
           ['error' => 'template_fetch_failed', 'template_email_id' => $templateEmailId]
