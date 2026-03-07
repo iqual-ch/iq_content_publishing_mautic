@@ -261,7 +261,7 @@ INSTRUCTIONS;
       '#type' => 'details',
       '#title' => $this->t('Email layout template'),
       '#open' => !empty($settings['template_email_id']),
-      '#description' => $this->t('Optionally use an existing Mautic email as a layout template. The template provides the outer HTML structure (header, footer, branding) and the AI-generated content is injected into it.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The AI-generated content replaces the placeholder token in the template email\'s HTML.'),
+      '#description' => $this->t('Optionally use an existing Mautic email as a layout template. The template provides the outer HTML structure (header, footer, branding) and the AI-generated content is injected into it.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template (recommended):</strong> Place <code>[ai:token_name]</code> tokens in the template HTML where AI-generated content should appear (e.g. <code>[ai:headline]</code>, <code>[ai:intro]</code>, <code>[ai:main_content]</code>, <code>[ai:cta_text]</code>). The AI will generate only the text for each token — your template\'s layout, header, footer, and styling remain untouched.<br><strong>Legacy mode:</strong> If no <code>[ai:*]</code> tokens are found, the template uses <code>{custom_content}</code> for single full-content injection.'),
     ];
 
     $form['template_wrapper']['template_email_id'] = [
@@ -307,12 +307,38 @@ INSTRUCTIONS;
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
           '#title' => $this->t('Template HTML content'),
-          '#description' => $this->t('The HTML of the selected Mautic template email. You can edit it here — this version will be used at publish time. Make sure it contains the placeholder token above where the AI-generated content should be injected.'),
+          '#description' => $this->t('The HTML of the selected Mautic template email. You can edit it here — this version will be used at publish time.<br>Add <code>[ai:token_name]</code> placeholders where you want AI-generated content (e.g. <code>[ai:headline]</code>, <code>[ai:intro]</code>, <code>[ai:main_content]</code>, <code>[ai:cta_text]</code>). The AI will generate text only for these tokens, leaving the rest of the template untouched.'),
           '#default_value' => $templateHtml,
           '#format' => 'easy_email',
           '#parents' => ['plugin_settings', 'template_html'],
           '#rows' => 20,
         ];
+
+        // Detect and display AI content tokens found in the template.
+        $aiTokens = [];
+        if (preg_match_all('/\[ai:([a-zA-Z0-9_]+)\]/', $templateHtml, $tokenMatches)) {
+          $aiTokens = array_unique($tokenMatches[1]);
+        }
+
+        if (!empty($aiTokens)) {
+          $tokenListHtml = '<ul>' . implode('', array_map(fn($t) => '<li><code>[ai:' . htmlspecialchars($t) . ']</code></li>', $aiTokens)) . '</ul>';
+          $form['template_wrapper']['detected_tokens'] = [
+            '#type' => 'item',
+            '#title' => $this->t('Detected AI content tokens'),
+            '#markup' => '<div class="messages messages--status">'
+              . $this->t('Token replacement mode active. The AI will generate text for each of these placeholders:')
+              . $tokenListHtml
+              . '</div>',
+          ];
+        }
+        else {
+          $form['template_wrapper']['no_tokens_info'] = [
+            '#type' => 'item',
+            '#markup' => '<div class="messages messages--warning">'
+              . $this->t('No <code>[ai:token_name]</code> tokens detected in the template. The template will use legacy full-content injection mode with <code>{custom_content}</code>.<br>For better AI generation results, add <code>[ai:token_name]</code> placeholders to your template where you want AI-generated content.')
+              . '</div>',
+          ];
+        }
       }
       else {
         $form['template_wrapper']['template_fetch_error'] = [
@@ -395,17 +421,43 @@ INSTRUCTIONS;
         );
       }
 
-      $contentToken = $settings['template_content_token'] ?? '{custom_content}';
-      if (str_contains($templateHtml, $contentToken)) {
-        $htmlBody = str_replace($contentToken, $htmlBody, $templateHtml);
+      // Check for AI content tokens [ai:token_name] in the template.
+      $aiTokens = $this->extractAiTokens($templateHtml);
+
+      if (!empty($aiTokens)) {
+        // Token replacement mode: parse structured AI output and replace
+        // each [ai:token_name] in the template with the generated content.
+        $tokenValues = $this->parseAiTokenValues($htmlBody, $aiTokens);
+
+        foreach ($aiTokens as $token) {
+          if (isset($tokenValues[$token]) && $tokenValues[$token] !== '') {
+            $templateHtml = str_replace("[ai:{$token}]", $tokenValues[$token], $templateHtml);
+          }
+          else {
+            $this->apiClient->getLogger()->warning('AI did not generate content for token "[ai:@token]". The token will be removed from the output.', [
+              '@token' => $token,
+            ]);
+            // Remove unfilled tokens so they don't appear in the sent email.
+            $templateHtml = str_replace("[ai:{$token}]", '', $templateHtml);
+          }
+        }
+
+        $htmlBody = $templateHtml;
       }
       else {
-        $this->apiClient->getLogger()->warning('Template email @id does not contain the placeholder token "@token". AI-generated content will be used in standalone mode as fallback.', [
-          '@id' => $templateEmailId,
-          '@token' => $contentToken,
-        ]);
-        // Fallback to standalone mode when placeholder is missing.
-        $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
+        // Legacy mode: single content injection via {custom_content} token.
+        $contentToken = $settings['template_content_token'] ?? '{custom_content}';
+        if (str_contains($templateHtml, $contentToken)) {
+          $htmlBody = str_replace($contentToken, $htmlBody, $templateHtml);
+        }
+        else {
+          $this->apiClient->getLogger()->warning('Template email @id does not contain any AI tokens or the placeholder token "@token". AI-generated content will be used in standalone mode as fallback.', [
+            '@id' => $templateEmailId,
+            '@token' => $contentToken,
+          ]);
+          // Fallback to standalone mode when placeholder is missing.
+          $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
+        }
       }
     }
     else {
@@ -499,6 +551,55 @@ INSTRUCTIONS;
         'status' => 'created',
       ]
     );
+  }
+
+  /**
+   * Extracts AI content tokens from template HTML.
+   *
+   * Scans for tokens in the format [ai:token_name] where token_name
+   * contains only alphanumeric characters and underscores.
+   *
+   * @param string $html
+   *   The template HTML to scan.
+   *
+   * @return string[]
+   *   Array of unique token names found (without the [ai:] wrapper).
+   */
+  protected function extractAiTokens(string $html): array {
+    $tokens = [];
+    if (preg_match_all('/\[ai:([a-zA-Z0-9_]+)\]/', $html, $matches)) {
+      $tokens = array_unique($matches[1]);
+    }
+    return array_values($tokens);
+  }
+
+  /**
+   * Parses AI-generated token values from structured content.
+   *
+   * Expects content formatted with delimited blocks:
+   * [ai:token_name]
+   * Generated content here
+   * [/ai:token_name]
+   *
+   * @param string $content
+   *   The AI-generated content containing token value blocks.
+   * @param string[] $expectedTokens
+   *   The token names to extract.
+   *
+   * @return array
+   *   Associative array of token_name => content value.
+   */
+  protected function parseAiTokenValues(string $content, array $expectedTokens): array {
+    $values = [];
+    foreach ($expectedTokens as $token) {
+      $escapedToken = preg_quote($token, '/');
+      // Match [ai:token]...content...[/ai:token] with flexible whitespace.
+      $pattern = '/\[ai:' . $escapedToken . '\]\s*(.*?)\s*\[\/ai:' . $escapedToken . '\]/s';
+      if (preg_match($pattern, $content, $match)) {
+        $values[$token] = trim($match[1]);
+      }
+    }
+    return $values;
   }
 
   /**
