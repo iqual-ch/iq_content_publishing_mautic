@@ -58,66 +58,61 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
       return;
     }
 
-    // Detect AI content tokens in the template.
-    $aiTokens = [];
-    if (preg_match_all('/\[ai:([a-zA-Z0-9_]+)\]/', $templateHtml, $matches)) {
-      $aiTokens = array_values(array_unique($matches[1]));
-    }
+    // Split template into header / body / footer by markers.
+    $bodyStartMarker = '<!-- BODY_START -->';
+    $bodyEndMarker = '<!-- BODY_END -->';
+    $startPos = strpos($templateHtml, $bodyStartMarker);
+    $endPos = strpos($templateHtml, $bodyEndMarker);
 
-    if (!empty($aiTokens)) {
-      // Token replacement mode: instruct the AI to generate text for each token.
-      $tokenList = implode(', ', array_map(fn($t) => "[ai:{$t}]", $aiTokens));
-      $tokenDescriptions = implode("\n", array_map(
-        fn($t) => "- [ai:{$t}]: Generate appropriate content for the \"{$t}\" section.",
-        $aiTokens
-      ));
+    if ($startPos !== FALSE && $endPos !== FALSE && $endPos > $startPos) {
+      // Body-section mode: AI uses the body as a design reference.
+      $bodySection = substr(
+        $templateHtml,
+        $startPos + strlen($bodyStartMarker),
+        $endPos - $startPos - strlen($bodyStartMarker)
+      );
 
       $templateContext = <<<CONTEXT
 
 
---- MAUTIC EMAIL TEMPLATE (TOKEN REPLACEMENT MODE) ---
-A Mautic email template is configured with content placeholders.
-Your task is to generate ONLY the replacement text for each placeholder token.
-The template already handles all layout, styling, header, footer, and branding.
+--- MAUTIC EMAIL TEMPLATE (BODY DESIGN REFERENCE) ---
+A Mautic email template is configured with body section markers.
+The header and footer of this email are FIXED and will be preserved automatically.
+Your task is to generate ONLY the body section HTML.
 
-The template contains these AI content tokens: {$tokenList}
+Analyze the body section below as a DESIGN REFERENCE:
+- Identify the component patterns: how titles, text blocks, CTAs (call-to-action
+  buttons), dividers, image+text sections, dark/light sections are structured.
+- Note the exact HTML patterns: table layouts, inline CSS, class names, spacing,
+  color scheme, font families, font sizes, line heights.
+- Understand the design system: how components are composed using MJML-style
+  column layouts, padding, and background colors.
 
-For each token, here is what to generate:
-{$tokenDescriptions}
+Then generate NEW body HTML content that:
+1. Uses the EXACT SAME HTML component patterns and inline CSS from the reference.
+2. Reuses the same table structures, <td> styles, classes, and spacing.
+3. Fills the components with content derived from the Drupal node.
+4. Adapts the number and type of components to fit the actual content
+   (you may use fewer or more components than the reference shows).
+5. Preserves any Mautic tokens like {contactfield=firstname}, {unsubscribe_url},
+   {webview_url} if you include them.
+6. Includes all <!--[if mso | IE]> conditional comments where the reference uses them.
 
-CRITICAL FORMAT INSTRUCTIONS for the html_body field:
-Output ONLY the token values using this EXACT delimited format:
+CRITICAL:
+- Output ONLY the body section HTML — no <html>, <head>, <body> tags.
+- Do NOT output the header or footer — they are automatically preserved.
+- Do NOT invent new CSS classes or styles — strictly reuse what the reference provides.
+- Keep the same max-width (e.g. 600px) and column proportions.
 
-[ai:token_name]
-Your generated content for this token
-[/ai:token_name]
-
-Rules:
-- Include ALL tokens listed above in your html_body output.
-- Generate concise, focused content appropriate for each token's purpose.
-- You MAY use simple inline HTML: <strong>, <em>, <a href="...">, <br>, <span>.
-- Do NOT generate full HTML structure, <table>, <div>, or complex layouts.
-- Do NOT include headers, footers, or branding — the template handles all of that.
-- The token name in the closing tag must exactly match the opening tag.
-
-Example format:
-[ai:headline]
-Discover Our Latest Updates
-[/ai:headline]
-
-[ai:intro]
-Stay informed with the newest features and improvements we have made this month.
-[/ai:intro]
-
-Template HTML (for design context — analyze the surrounding content to match tone and style):
+Body section design reference:
 ```html
-{$templateHtml}
+{$bodySection}
 ```
 --- END TEMPLATE CONTEXT ---
 CONTEXT;
     }
     else {
-      // Legacy full-content mode with {custom_content} placeholder.
+      // No body markers: provide full template as general design context.
       $templateContext = <<<CONTEXT
 
 
