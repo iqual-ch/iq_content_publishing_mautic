@@ -41,6 +41,9 @@ iq_content_publishing_mautic.settings.mautic:
         format:
           type: string
           label: 'Text format'
+    template_file_uri:
+      type: string
+      label: 'File URI for template HTML storage'
     _template_loaded_id:
       type: integer
       label: 'Template ID for which HTML was last loaded'

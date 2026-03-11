@@ -15,8 +15,9 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
  * can generate content that matches the template's design and structure.
  *
  * Content slots mode: Admin places {ai:slot_name} tokens anywhere in the
- * template. The AI generates only plain text for each slot. Template HTML
- * is 100% untouched — slots are filled via str_replace at publish time.
+ * template. The AI receives the full template, replaces each token with
+ * generated content, and returns the complete HTML. The template structure
+ * is preserved because the AI only swaps tokens — no layout generation.
  */
 final class MauticPreTransformSubscriber implements EventSubscriberInterface {
 
@@ -43,18 +44,8 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
     }
 
     $settings = $platform->getPluginSettings();
-    $templateEmailId = !empty($settings['template_email_id']) ? (int) $settings['template_email_id'] : 0;
 
-    if ($templateEmailId <= 0) {
-      return;
-    }
-
-    $templateHtml = '';
-    if (!empty($settings['template_html'])) {
-      $templateHtml = is_array($settings['template_html'])
-        ? ($settings['template_html']['value'] ?? '')
-        : (string) $settings['template_html'];
-    }
+    $templateHtml = $this->loadTemplateHtml($settings);
 
     if (empty($templateHtml)) {
       return;
@@ -69,8 +60,8 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
     }
 
     if (!empty($slots)) {
-      // Content slot mode: AI generates only text for each slot.
-      $templateContext = $this->buildSlotInstructions($slots);
+      // Content slot mode: AI fills tokens and returns complete HTML.
+      $templateContext = $this->buildSlotInstructions($slots, $templateHtml);
     }
     else {
       // No slots: provide full template as general design context.
@@ -81,49 +72,81 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
   }
 
   /**
+   * Loads template HTML from file storage or config fallback.
+   *
+   * @param array $settings
+   *   The platform plugin settings.
+   *
+   * @return string
+   *   The template HTML, or empty string if unavailable.
+   */
+  private function loadTemplateHtml(array $settings): string {
+    // Prefer file-based storage.
+    if (!empty($settings['template_file_uri'])) {
+      $contents = @file_get_contents($settings['template_file_uri']);
+      if ($contents !== FALSE) {
+        return $contents;
+      }
+    }
+
+    // Fallback to config-stored HTML.
+    if (!empty($settings['template_html'])) {
+      return is_array($settings['template_html'])
+        ? ($settings['template_html']['value'] ?? '')
+        : (string) $settings['template_html'];
+    }
+
+    return '';
+  }
+
+  /**
    * Builds AI instructions for content slot mode.
+   *
+   * Sends the full template HTML with {ai:*} tokens and tells the AI to
+   * return the complete HTML with tokens replaced by generated content.
    *
    * @param array $slots
    *   Associative array of slot names to context descriptions.
+   * @param string $templateHtml
+   *   The full template HTML containing {ai:*} tokens.
    *
    * @return string
    *   The instruction text to append.
    */
-  private function buildSlotInstructions(array $slots): string {
+  private function buildSlotInstructions(array $slots, string $templateHtml): string {
     $slotList = '';
     foreach ($slots as $name => $context) {
-      $slotList .= "- {$name}: {$context}\n";
+      $slotList .= "- {ai:{$name}}: {$context}\n";
     }
 
     return <<<CONTEXT
 
 
---- CONTENT SLOTS MODE ---
-The email template has a fixed HTML layout. You do NOT generate any HTML.
-Instead, generate plain-text content for each named slot listed below.
-The template's HTML structure, styling, and design are preserved automatically.
+--- MAUTIC EMAIL TEMPLATE WITH CONTENT SLOTS ---
+Below is the COMPLETE email HTML template. It contains {ai:slot_name}
+placeholder tokens that you must replace with content from the Drupal node.
 
-Your html_body output MUST use this exact format — one block per slot:
-
-<!-- slot:slot_name -->
-Your text content here
-<!-- /slot:slot_name -->
-
-SLOTS TO FILL (derived from the Drupal node content):
+CONTENT SLOTS TO FILL:
 {$slotList}
-RULES:
-1. Output ONLY the slot blocks above in html_body — nothing else.
-2. Each slot value is PLAIN TEXT (or minimal inline HTML like <strong>, <em>,
-   <a href="..."> ONLY when the slot context indicates it — e.g. a paragraph
-   that needs a link). No tables, no divs, no styling.
-3. Derive ALL content from the Drupal node being processed (title, body,
-   summary, images, URL).
-4. Keep text concise and appropriate to the slot's context.
-5. For URL slots (href, src), output just the URL — no markup.
+YOUR TASK:
+1. Copy the ENTIRE template HTML below into your html_body output.
+2. Replace EACH {ai:slot_name} token with appropriate content derived from
+   the Drupal node (see slot descriptions above for expected content type).
+3. Do NOT modify ANY other part of the template — every HTML tag, attribute,
+   inline CSS, class name, comment, and whitespace must remain exactly as-is.
+4. Your html_body output must be the COMPLETE email HTML with only the
+   {ai:*} tokens replaced. Include everything: <!DOCTYPE>, <html>, <head>,
+   <body>, header sections, footer sections — the full document.
+5. For URL slots, output just the URL (no markup around it).
 6. For image slots, output the image URL from the node content.
-7. Do NOT include any HTML outside the slot comment blocks.
-8. Generate subject, name, and plain_text normally (as full fields).
---- END CONTENT SLOTS ---
+7. For text slots, keep content concise and appropriate to the context.
+8. Generate subject, name, and plain_text fields normally.
+
+TEMPLATE HTML:
+```html
+{$templateHtml}
+```
+--- END TEMPLATE ---
 CONTEXT;
   }
 

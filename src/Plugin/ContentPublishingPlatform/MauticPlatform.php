@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Drupal\iq_content_publishing_mautic\Plugin\ContentPublishingPlatform;
 
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\iq_content_publishing\Attribute\ContentPublishingPlatform;
 use Drupal\iq_content_publishing\Plugin\ContentPublishingPlatformBase;
@@ -99,15 +101,12 @@ Guidelines:
 - Also generate a plain-text version without HTML markup.
 
 For the html_body field:
-- If CONTENT SLOTS are provided below (listed as slot names with descriptions),
-  output ONLY the slot blocks in the specified format. Each slot value should be
-  plain text (or minimal inline HTML where indicated). The email template HTML
-  is fixed — you are filling in text blanks, not generating layout.
-- If no slots are provided, generate a standalone HTML email body using
-  table-based layouts with inline CSS.
-
-Do NOT include <html>, <head>, or <body> tags in html_body.
-Do NOT reproduce header, footer, or branding from the template.
+- If a CONTENT SLOTS TEMPLATE is provided below, your html_body output MUST be
+  the COMPLETE email HTML document with all {ai:slot_name} tokens replaced by
+  generated content. Preserve every other part of the template exactly as-is.
+  The template provides the full structure — you only replace the {ai:*} tokens.
+- If no template with content slots is provided, generate a standalone HTML email
+  body using table-based layouts with inline CSS (do NOT include <html>/<head>/<body>).
 
 Available tokens:
 - [node:title] — The content title.
@@ -256,7 +255,7 @@ INSTRUCTIONS;
       '#type' => 'details',
       '#title' => $this->t('Email layout template'),
       '#open' => !empty($settings['template_email_id']),
-      '#description' => $this->t('Optionally use an existing Mautic email as a design template.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The template provides the full email structure. Add <code>&lt;!-- BODY_START --&gt;</code> and <code>&lt;!-- BODY_END --&gt;</code> markers around the body section. Everything outside these markers (header, footer, branding) is preserved exactly. The AI analyzes the body section as a design reference, then generates new body content using the same component patterns (tables, inline styles, layout structure), filled with the Drupal node content.'),
+      '#description' => $this->t('Optionally use an existing Mautic email as a design template.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The template provides the full email structure (HTML, CSS, layout). Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>). The AI receives the entire template, replaces each token with content from the Drupal node, and returns the complete HTML — preserving the design exactly.'),
     ];
 
     $form['template_wrapper']['template_email_id'] = [
@@ -280,11 +279,9 @@ INSTRUCTIONS;
     if ($templateEmailId > 0 && !empty($connectionId)) {
       // Determine whether to use stored HTML or fetch fresh from Mautic.
       $storedLoadedId = (int) ($settings['_template_loaded_id'] ?? 0);
-      if ($storedLoadedId === $templateEmailId && !empty($settings['template_html'])) {
-        // Same template ID — reuse stored/edited HTML.
-        $templateHtml = is_array($settings['template_html'])
-          ? ($settings['template_html']['value'] ?? '')
-          : (string) $settings['template_html'];
+      if ($storedLoadedId === $templateEmailId) {
+        // Same template ID — reuse stored/edited HTML (file first, then config).
+        $templateHtml = $this->getTemplateHtml($settings);
       }
       else {
         // New template ID — fetch from Mautic API.
@@ -302,11 +299,19 @@ INSTRUCTIONS;
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
           '#title' => $this->t('Template HTML content'),
-          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>, <code>{ai:cta_url}</code>). The AI generates only text for each slot — the template HTML stays 100% intact.'),
+          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>, <code>{ai:cta_url}</code>). The AI receives the entire template, replaces each token, and returns the complete HTML.'),
           '#default_value' => $templateHtml,
           '#format' => 'easy_email',
           '#parents' => ['plugin_settings', 'template_html'],
           '#rows' => 20,
+          '#element_validate' => [[static::class, 'validateSaveTemplateToFile']],
+        ];
+
+        // Hidden field to persist the file URI in config.
+        $form['template_wrapper']['template_file_uri'] = [
+          '#type' => 'hidden',
+          '#default_value' => $settings['template_file_uri'] ?? '',
+          '#parents' => ['plugin_settings', 'template_file_uri'],
         ];
 
         // Detect {ai:*} content slots in the template.
@@ -320,7 +325,7 @@ INSTRUCTIONS;
           $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--status">'
-              . $this->t('Content slots detected: @slots. The AI will generate text for each slot. The template HTML stays untouched.', ['@slots' => $slotListHtml])
+              . $this->t('Content slots detected: @slots. The AI will replace each token with generated content and return the complete email HTML.', ['@slots' => $slotListHtml])
               . '</div>',
           ];
         }
@@ -395,12 +400,7 @@ INSTRUCTIONS;
     $templateEmailId = !empty($settings['template_email_id']) ? (int) $settings['template_email_id'] : 0;
     if ($templateEmailId > 0) {
       // Template mode: use stored template HTML, falling back to API fetch.
-      $templateHtml = '';
-      if (!empty($settings['template_html'])) {
-        $templateHtml = is_array($settings['template_html'])
-          ? ($settings['template_html']['value'] ?? '')
-          : (string) $settings['template_html'];
-      }
+      $templateHtml = $this->getTemplateHtml($settings);
 
       // Fallback: fetch from Mautic if no stored HTML.
       if (empty($templateHtml)) {
@@ -416,8 +416,11 @@ INSTRUCTIONS;
 
       // Check for {ai:slot_name} content slots in the template.
       if (preg_match_all('/\{ai:[\w-]+\}/', $templateHtml, $slotMatches)) {
-        // Content slot mode: parse AI output for slot values, fill the template.
-        $htmlBody = $this->fillContentSlots($templateHtml, $htmlBody);
+        // Content slot mode: AI already returned the complete HTML with tokens
+        // replaced. Use htmlBody directly — no merging needed.
+        if (preg_match('/\{ai:[\w-]+\}/', $htmlBody)) {
+          $this->apiClient->getLogger()->warning('Some {ai:*} content slot tokens may not have been replaced by the AI in the html_body output.');
+        }
       }
       else {
         // No slots — fallback: single content injection via {custom_content}.
@@ -528,46 +531,80 @@ INSTRUCTIONS;
   }
 
   /**
-   * Parses AI slot output and fills {ai:*} tokens in the template.
+   * Loads template HTML from file storage, config, or empty string.
    *
-   * The AI outputs html_body in the format:
-   *   <!-- slot:name -->value<!-- /slot:name -->
-   * This method extracts each slot value and replaces the corresponding
-   * {ai:name} token in the template HTML.
+   * Checks for file-based storage first (template_file_uri), then falls
+   * back to the config-stored template_html value.
    *
-   * @param string $template
-   *   The full template HTML containing {ai:slot_name} tokens.
-   * @param string $aiOutput
-   *   The AI-generated html_body containing slot blocks.
+   * @param array $settings
+   *   The platform plugin settings.
    *
    * @return string
-   *   The template with all found slots filled in. Unfilled slots
-   *   are left as-is (their {ai:*} token remains).
+   *   The template HTML, or empty string if unavailable.
    */
-  protected function fillContentSlots(string $template, string $aiOutput): string {
-    // Parse <!-- slot:name -->value<!-- /slot:name --> blocks from AI output.
-    $slots = [];
-    if (preg_match_all('/<!-- slot:([\w-]+) -->(.*?)<!-- \/slot:\1 -->/s', $aiOutput, $matches, PREG_SET_ORDER)) {
-      foreach ($matches as $match) {
-        $slots[$match[1]] = trim($match[2]);
+  protected function getTemplateHtml(array $settings): string {
+    // Prefer file-based storage.
+    if (!empty($settings['template_file_uri'])) {
+      $contents = @file_get_contents($settings['template_file_uri']);
+      if ($contents !== FALSE) {
+        return $contents;
       }
     }
 
-    if (empty($slots)) {
-      // AI didn't follow the slot format — log warning.
-      // Return the template as-is with unfilled slots rather than injecting
-      // raw AI output which would break the template structure.
-      $this->apiClient->getLogger()->warning('AI output did not contain valid content slot blocks. Template will be used with unfilled slots.');
-      return $template;
+    // Fallback to config-stored HTML.
+    if (!empty($settings['template_html'])) {
+      return is_array($settings['template_html'])
+        ? ($settings['template_html']['value'] ?? '')
+        : (string) $settings['template_html'];
     }
 
-    // Replace each {ai:slot_name} token in the template.
-    $filled = $template;
-    foreach ($slots as $name => $value) {
-      $filled = str_replace('{ai:' . $name . '}', $value, $filled);
+    return '';
+  }
+
+  /**
+   * Element validate callback: saves template HTML to a file.
+   *
+   * Writes the template HTML content to a managed file in private:// (or
+   * public:// fallback) and stores the file URI in settings. This avoids
+   * bloating config with large HTML blobs.
+   *
+   * @param array $element
+   *   The form element.
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *   The form state.
+   * @param array $form
+   *   The complete form array.
+   */
+  public static function validateSaveTemplateToFile(array &$element, FormStateInterface $form_state, array &$form): void {
+    $value = $form_state->getValue($element['#parents']);
+    $html = is_array($value) ? ($value['value'] ?? '') : (string) $value;
+
+    if (empty(trim($html))) {
+      return;
     }
 
-    return $filled;
+    $templateId = $form_state->getValue(['plugin_settings', 'template_email_id']) ?? 0;
+    if (empty($templateId)) {
+      return;
+    }
+
+    /** @var \Drupal\Core\File\FileSystemInterface $fileSystem */
+    $fileSystem = \Drupal::service('file_system');
+
+    // Use private:// if available, otherwise public://.
+    $baseDir = 'private://iq_content_publishing_mautic/templates';
+    if (!$fileSystem->realpath('private://')) {
+      $baseDir = 'public://iq_content_publishing_mautic/templates';
+    }
+
+    $fileSystem->prepareDirectory($baseDir, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
+    $uri = $baseDir . '/template_' . $templateId . '.html';
+    $fileSystem->saveData($html, $uri, FileSystemInterface::EXISTS_REPLACE);
+
+    // Store the file URI; clear the value from config to avoid duplication.
+    $format = is_array($value) ? ($value['format'] ?? 'easy_email') : 'easy_email';
+    $form_state->setValueForElement($element, ['value' => '', 'format' => $format]);
+    $form_state->setValue(['plugin_settings', 'template_file_uri'], $uri);
   }
 
   /**
