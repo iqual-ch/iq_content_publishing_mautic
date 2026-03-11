@@ -96,26 +96,24 @@ Transform the following Drupal content into a professional email newsletter for 
 Guidelines:
 - Generate a compelling subject line (under 150 characters) that encourages opens.
 - Create a concise internal name for identification in the Mautic dashboard.
-- Create an HTML email body that is well-structured and email-client friendly.
-- Use simple, inline CSS for styling (no external stylesheets).
-- Use table-based layouts for maximum email client compatibility.
-- Design a visually appealing layout with a clear visual hierarchy.
-- Use professional typography and spacing.
+- Process the Drupal node content (title, body text, images, summary, URL) and
+  produce the email HTML body from it.
+- If a template design reference is provided below, it shows the body section
+  between <!-- BODY_START --> and <!-- BODY_END --> markers. You MUST strictly
+  replicate its HTML component patterns, inline CSS, table structures, colors,
+  fonts, and spacing. Fill those patterns with actual data from the node content.
+  Only output the REPLACEMENT body — not the header or footer.
+- If no template is provided, generate a standalone HTML body using table-based
+  layouts with inline CSS.
+- Keep paragraphs short and scannable. Maintain a professional yet engaging tone.
 - Include a clear call-to-action linking to the original content.
-- Keep paragraphs short and scannable.
-- Maintain a professional yet engaging tone.
-- Include the content URL as a "Read more" link.
 - You may use Mautic tokens like {contactfield=firstname} for personalization.
 - Also generate a plain-text version without HTML markup.
 
-CRITICAL: Generate ONLY the inner email content — do NOT include <html>, <head>,
-or <body> tags. The output will be automatically wrapped in a complete HTML email
-document structure or injected into a Mautic template.
-
-If a template design reference is provided below, you MUST strictly follow its
-HTML patterns, component structures, inline CSS styles, and layout approach.
-Reuse the exact same table structures, classes, paddings, colors, and fonts.
-Only generate the body section — header and footer are handled automatically.
+CRITICAL: Generate ONLY the inner body content.
+Do NOT include <html>, <head>, or <body> tags.
+Do NOT reproduce header, footer, or branding from the template — those are
+kept automatically. Focus only on the content area between the markers.
 
 Available tokens:
 - [node:title] — The content title.

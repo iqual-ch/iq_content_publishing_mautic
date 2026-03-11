@@ -65,7 +65,7 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
     $endPos = strpos($templateHtml, $bodyEndMarker);
 
     if ($startPos !== FALSE && $endPos !== FALSE && $endPos > $startPos) {
-      // Body-section mode: AI uses the body as a design reference.
+      // Body-section mode: AI replaces only the content between the markers.
       $bodySection = substr(
         $templateHtml,
         $startPos + strlen($bodyStartMarker),
@@ -75,40 +75,43 @@ final class MauticPreTransformSubscriber implements EventSubscriberInterface {
       $templateContext = <<<CONTEXT
 
 
---- MAUTIC EMAIL TEMPLATE (BODY DESIGN REFERENCE) ---
-A Mautic email template is configured with body section markers.
-The header and footer of this email are FIXED and will be preserved automatically.
-Your task is to generate ONLY the body section HTML.
+--- MAUTIC EMAIL TEMPLATE (BODY REPLACEMENT) ---
+The email template uses <!-- BODY_START --> and <!-- BODY_END --> markers.
+Everything OUTSIDE these markers (header, footer, branding, navigation,
+social links, unsubscribe section) is KEPT EXACTLY AS-IS — you must NOT
+reproduce, modify, or reference any of it.
 
-Analyze the body section below as a DESIGN REFERENCE:
-- Identify the component patterns: how titles, text blocks, CTAs (call-to-action
-  buttons), dividers, image+text sections, dark/light sections are structured.
-- Note the exact HTML patterns: table layouts, inline CSS, class names, spacing,
-  color scheme, font families, font sizes, line heights.
-- Understand the design system: how components are composed using MJML-style
-  column layouts, padding, and background colors.
+Your html_body output will REPLACE everything between the markers.
 
-Then generate NEW body HTML content that:
-1. Uses the EXACT SAME HTML component patterns and inline CSS from the reference.
-2. Reuses the same table structures, <td> styles, classes, and spacing.
-3. Fills the components with content derived from the Drupal node.
-4. Adapts the number and type of components to fit the actual content
-   (you may use fewer or more components than the reference shows).
-5. Preserves any Mautic tokens like {contactfield=firstname}, {unsubscribe_url},
-   {webview_url} if you include them.
-6. Includes all <!--[if mso | IE]> conditional comments where the reference uses them.
+== BODY SECTION FROM THE TEMPLATE ==
+Below is the current content between the markers. Treat it as the DESIGN
+BLUEPRINT — your output must reuse its exact HTML patterns:
 
-CRITICAL:
-- Output ONLY the body section HTML — no <html>, <head>, <body> tags.
-- Do NOT output the header or footer — they are automatically preserved.
-- Do NOT invent new CSS classes or styles — strictly reuse what the reference provides.
-- Keep the same max-width (e.g. 600px) and column proportions.
-
-Body section design reference:
 ```html
 {$bodySection}
 ```
---- END TEMPLATE CONTEXT ---
+
+== YOUR TASK ==
+1. PROCESS the Drupal node content (title, body, images, summary, URL)
+   and produce email-ready HTML that communicates the node's information.
+2. STRUCTURE your output using the same component types found in the
+   blueprint above. For every distinct component pattern you see (e.g.
+   title block, text paragraph, image + text row, CTA button, divider,
+   multi-column cards), copy its exact HTML markup and inline CSS — then
+   fill it with data derived from the node content.
+3. You MAY add, remove, or repeat components to fit the actual content
+   length — but every component you use MUST come from the blueprint's
+   pattern library. Do NOT invent new tags, classes, or styles.
+4. PRESERVE all structural wrappers: table/tr/td nesting, <!--[if mso | IE]>
+   conditional comments, width constraints (e.g. max-width:600px), padding,
+   and margin values exactly as they appear in the blueprint.
+5. MATCH the visual design: same colors, font-family, font-size,
+   line-height, letter-spacing, background-color, border-radius values.
+6. KEEP any Mautic tokens you include (e.g. {contactfield=firstname})
+   but do NOT add tokens that are already in the header/footer.
+7. OUTPUT only the replacement body HTML — no <html>, <head>, <body>,
+   <!DOCTYPE>, and no header/footer sections.
+--- END TEMPLATE ---
 CONTEXT;
     }
     else {
