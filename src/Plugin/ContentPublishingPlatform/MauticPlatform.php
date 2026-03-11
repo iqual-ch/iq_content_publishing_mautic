@@ -96,24 +96,18 @@ Transform the following Drupal content into a professional email newsletter for 
 Guidelines:
 - Generate a compelling subject line (under 150 characters) that encourages opens.
 - Create a concise internal name for identification in the Mautic dashboard.
-- Process the Drupal node content (title, body text, images, summary, URL) and
-  produce the email HTML body from it.
-- If a template design reference is provided below, it shows the body section
-  between <!-- BODY_START --> and <!-- BODY_END --> markers. You MUST strictly
-  replicate its HTML component patterns, inline CSS, table structures, colors,
-  fonts, and spacing. Fill those patterns with actual data from the node content.
-  Only output the REPLACEMENT body — not the header or footer.
-- If no template is provided, generate a standalone HTML body using table-based
-  layouts with inline CSS.
-- Keep paragraphs short and scannable. Maintain a professional yet engaging tone.
-- Include a clear call-to-action linking to the original content.
-- You may use Mautic tokens like {contactfield=firstname} for personalization.
 - Also generate a plain-text version without HTML markup.
 
-CRITICAL: Generate ONLY the inner body content.
-Do NOT include <html>, <head>, or <body> tags.
-Do NOT reproduce header, footer, or branding from the template — those are
-kept automatically. Focus only on the content area between the markers.
+For the html_body field:
+- If CONTENT SLOTS are provided below (listed as slot names with descriptions),
+  output ONLY the slot blocks in the specified format. Each slot value should be
+  plain text (or minimal inline HTML where indicated). The email template HTML
+  is fixed — you are filling in text blanks, not generating layout.
+- If no slots are provided, generate a standalone HTML email body using
+  table-based layouts with inline CSS.
+
+Do NOT include <html>, <head>, or <body> tags in html_body.
+Do NOT reproduce header, footer, or branding from the template.
 
 Available tokens:
 - [node:title] — The content title.
@@ -308,38 +302,33 @@ INSTRUCTIONS;
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
           '#title' => $this->t('Template HTML content'),
-          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Add <code>&lt;!-- BODY_START --&gt;</code> and <code>&lt;!-- BODY_END --&gt;</code> markers to delimit the body section. The header (everything before BODY_START) and footer (everything after BODY_END) will be kept exactly as-is. The AI will analyze the body section as a design reference to understand component structure, then generate new body content using the same patterns.'),
+          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>, <code>{ai:cta_url}</code>). The AI generates only text for each slot — the template HTML stays 100% intact.'),
           '#default_value' => $templateHtml,
           '#format' => 'easy_email',
           '#parents' => ['plugin_settings', 'template_html'],
           '#rows' => 20,
         ];
 
-        // Detect body section markers.
-        $hasBodyStart = str_contains($templateHtml, '<!-- BODY_START -->');
-        $hasBodyEnd = str_contains($templateHtml, '<!-- BODY_END -->');
+        // Detect {ai:*} content slots in the template.
+        $aiSlots = [];
+        if (preg_match_all('/\{ai:([\w-]+)\}/', $templateHtml, $slotMatches)) {
+          $aiSlots = $slotMatches[1];
+        }
 
-        if ($hasBodyStart && $hasBodyEnd) {
-          $form['template_wrapper']['body_markers_status'] = [
+        if (!empty($aiSlots)) {
+          $slotListHtml = '<code>{ai:' . implode('}</code>, <code>{ai:', $aiSlots) . '}</code>';
+          $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--status">'
-              . $this->t('Body section markers detected. The header and footer will be preserved. The AI will use the body section as a design reference to generate matching content.')
-              . '</div>',
-          ];
-        }
-        elseif ($hasBodyStart || $hasBodyEnd) {
-          $form['template_wrapper']['body_markers_status'] = [
-            '#type' => 'item',
-            '#markup' => '<div class="messages messages--warning">'
-              . $this->t('Only one body marker found. Both <code>&lt;!-- BODY_START --&gt;</code> and <code>&lt;!-- BODY_END --&gt;</code> are required. Falling back to full-content injection mode.')
+              . $this->t('Content slots detected: @slots. The AI will generate text for each slot. The template HTML stays untouched.', ['@slots' => $slotListHtml])
               . '</div>',
           ];
         }
         else {
-          $form['template_wrapper']['body_markers_status'] = [
+          $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--warning">'
-              . $this->t('No body section markers found. Add <code>&lt;!-- BODY_START --&gt;</code> and <code>&lt;!-- BODY_END --&gt;</code> around the body section of the template to enable the design-reference mode. Without markers, the template uses full-content injection via <code>{custom_content}</code>.')
+              . $this->t('No <code>{ai:slot_name}</code> content slots detected. Replace sample text in the template with tokens like <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>. The AI will generate text for each slot while keeping the HTML layout intact.')
               . '</div>',
           ];
         }
@@ -425,25 +414,22 @@ INSTRUCTIONS;
         );
       }
 
-      // Check for body section markers <!-- BODY_START --> / <!-- BODY_END -->.
-      $bodyParts = $this->splitTemplateByBodyMarkers($templateHtml);
-
-      if ($bodyParts !== NULL) {
-        // Body-section mode: preserve header/footer, replace body with AI content.
-        $htmlBody = $bodyParts['header'] . "\n" . $htmlBody . "\n" . $bodyParts['footer'];
+      // Check for {ai:slot_name} content slots in the template.
+      if (preg_match_all('/\{ai:[\w-]+\}/', $templateHtml, $slotMatches)) {
+        // Content slot mode: parse AI output for slot values, fill the template.
+        $htmlBody = $this->fillContentSlots($templateHtml, $htmlBody);
       }
       else {
-        // Fallback: single content injection via {custom_content} token.
+        // No slots — fallback: single content injection via {custom_content}.
         $contentToken = $settings['template_content_token'] ?? '{custom_content}';
         if (str_contains($templateHtml, $contentToken)) {
           $htmlBody = str_replace($contentToken, $htmlBody, $templateHtml);
         }
         else {
-          $this->apiClient->getLogger()->warning('Template email @id does not contain body markers or the placeholder token "@token". AI-generated content will be used in standalone mode as fallback.', [
+          $this->apiClient->getLogger()->warning('Template email @id has no {ai:*} content slots and no "@token" placeholder. AI-generated content will be used in standalone mode.', [
             '@id' => $templateEmailId,
             '@token' => $contentToken,
           ]);
-          // Fallback to standalone mode when no injection method is available.
           $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
         }
       }
@@ -542,36 +528,46 @@ INSTRUCTIONS;
   }
 
   /**
-   * Splits template HTML into header, body, and footer by body markers.
+   * Parses AI slot output and fills {ai:*} tokens in the template.
    *
-   * Looks for <!-- BODY_START --> and <!-- BODY_END --> comment markers in the
-   * template HTML. If both are found, returns the three sections. The header
-   * and footer are preserved exactly as-is at publish time, while the body
-   * section is provided to the AI as a design reference.
+   * The AI outputs html_body in the format:
+   *   <!-- slot:name -->value<!-- /slot:name -->
+   * This method extracts each slot value and replaces the corresponding
+   * {ai:name} token in the template HTML.
    *
-   * @param string $html
-   *   The full template HTML.
+   * @param string $template
+   *   The full template HTML containing {ai:slot_name} tokens.
+   * @param string $aiOutput
+   *   The AI-generated html_body containing slot blocks.
    *
-   * @return array|null
-   *   An associative array with keys 'header', 'body', and 'footer',
-   *   or NULL if the markers are not found.
+   * @return string
+   *   The template with all found slots filled in. Unfilled slots
+   *   are left as-is (their {ai:*} token remains).
    */
-  protected function splitTemplateByBodyMarkers(string $html): ?array {
-    $bodyStartMarker = '<!-- BODY_START -->';
-    $bodyEndMarker = '<!-- BODY_END -->';
-
-    $startPos = strpos($html, $bodyStartMarker);
-    $endPos = strpos($html, $bodyEndMarker);
-
-    if ($startPos === FALSE || $endPos === FALSE || $endPos <= $startPos) {
-      return NULL;
+  protected function fillContentSlots(string $template, string $aiOutput): string {
+    // Parse <!-- slot:name -->value<!-- /slot:name --> blocks from AI output.
+    $slots = [];
+    if (preg_match_all('/<!-- slot:([\w-]+) -->(.*?)<!-- \/slot:\1 -->/s', $aiOutput, $matches, PREG_SET_ORDER)) {
+      foreach ($matches as $match) {
+        $slots[$match[1]] = trim($match[2]);
+      }
     }
 
-    return [
-      'header' => substr($html, 0, $startPos + strlen($bodyStartMarker)),
-      'body' => substr($html, $startPos + strlen($bodyStartMarker), $endPos - $startPos - strlen($bodyStartMarker)),
-      'footer' => substr($html, $endPos),
-    ];
+    if (empty($slots)) {
+      // AI didn't follow the slot format — log warning.
+      // Return the template as-is with unfilled slots rather than injecting
+      // raw AI output which would break the template structure.
+      $this->apiClient->getLogger()->warning('AI output did not contain valid content slot blocks. Template will be used with unfilled slots.');
+      return $template;
+    }
+
+    // Replace each {ai:slot_name} token in the template.
+    $filled = $template;
+    foreach ($slots as $name => $value) {
+      $filled = str_replace('{ai:' . $name . '}', $value, $filled);
+    }
+
+    return $filled;
   }
 
   /**
