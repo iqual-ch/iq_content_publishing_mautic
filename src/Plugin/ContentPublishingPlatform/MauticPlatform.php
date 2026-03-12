@@ -324,7 +324,7 @@ INSTRUCTIONS;
       // Determine whether to use stored HTML or fetch fresh from Mautic.
       $storedLoadedId = (int) ($settings['_template_loaded_id'] ?? 0);
       if ($storedLoadedId === $templateEmailId) {
-        // Same template ID — reuse stored/edited HTML (file first, then config).
+        // Same template ID — reuse stored/edited HTML.
         $templateHtml = $this->getTemplateHtml($settings);
       }
       else {
@@ -563,10 +563,9 @@ INSTRUCTIONS;
   }
 
   /**
-   * Loads template HTML from file storage, config, or empty string.
+   * Loads template HTML from file storage.
    *
-   * Checks for file-based storage first (template_file_uri), then falls
-   * back to the config-stored template_html value.
+   * Checks for file-based storage (template_file_uri).
    *
    * @param array $settings
    *   The platform plugin settings.
@@ -581,13 +580,6 @@ INSTRUCTIONS;
       if ($contents !== FALSE) {
         return $contents;
       }
-    }
-
-    // Fallback to config-stored HTML.
-    if (!empty($settings['template_html'])) {
-      return is_array($settings['template_html'])
-        ? ($settings['template_html']['value'] ?? '')
-        : (string) $settings['template_html'];
     }
 
     return '';
@@ -636,9 +628,7 @@ INSTRUCTIONS;
     $uri = $baseDir . '/template_' . $templateId . '.html';
     $fileSystem->saveData($html, $uri, FileSystemInterface::EXISTS_REPLACE);
 
-    // Store the file URI; clear the value from config to avoid duplication.
-    $format = is_array($value) ? ($value['format'] ?? 'easy_email') : 'easy_email';
-    $form_state->setValueForElement($element, ['value' => '', 'format' => $format]);
+    // Store the file URI;
     $form_state->setValue(['plugin_settings', 'template_file_uri'], $uri);
   }
 
