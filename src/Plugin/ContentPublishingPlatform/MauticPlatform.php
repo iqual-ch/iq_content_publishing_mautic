@@ -73,7 +73,7 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
       'html_body' => [
         'type' => 'text_format',
         'label' => (string) $this->t('Email HTML body'),
-        'description' => (string) $this->t('The main HTML content of the email. Use well-structured HTML suitable for email clients.'),
+        'description' => (string) $this->t('The HTML content for the email body. When a template is configured, this content will be merged into the template at the {ai_content} position.'),
         'required' => TRUE,
         'ai_generated' => TRUE,
         'format' => 'easy_email',
@@ -93,33 +93,21 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
    */
   public function getDefaultAiInstructions(): string {
     return <<<'INSTRUCTIONS'
-Transform the following Drupal content into a professional email newsletter for Mautic.
+Transform the following Drupal content into a professional email newsletter.
 
 Guidelines:
 - Generate a compelling subject line (under 150 characters) that encourages opens.
 - Create a concise internal name for identification in the Mautic dashboard.
-- Also generate a plain-text version without HTML markup.
+- For the html_body, generate a well-structured HTML content snippet suitable for
+  embedding inside an email template. Use inline CSS and table-based layout patterns
+  compatible with email clients. Include headings, paragraphs, and links as needed.
+  Do NOT include <!DOCTYPE>, <html>, <head>, or <body> tags — only the inner content.
+- Generate a plain-text version without any HTML markup.
 
-For the html_body field:
-- If a CONTENT SLOTS TEMPLATE is provided below, your html_body output MUST be
-  the COMPLETE email HTML document with all {ai:slot_name} tokens replaced by
-  generated content. Preserve every other part of the template exactly as-is.
-  The template provides the full structure — you only replace the {ai:*} tokens.
-- If no template with content slots is provided, generate a standalone HTML email
-  body using table-based layouts with inline CSS (do NOT include <html>/<head>/<body>).
-
-Available tokens:
-- [node:title] — The content title.
-- [node:url] — The full URL to the content.
-- [node:summary] — The content summary.
-- [node:content_type] — The content type label.
-
-Mautic personalization tokens (use in the HTML body):
+Mautic personalization tokens (you may use these in html_body):
 - {contactfield=firstname} — Contact's first name.
 - {contactfield=lastname} — Contact's last name.
 - {contactfield=email} — Contact's email address.
-- {unsubscribe_text} — Unsubscribe link text.
-- {webview_text} — Web view link text.
 INSTRUCTIONS;
   }
 
@@ -255,7 +243,7 @@ INSTRUCTIONS;
       '#type' => 'details',
       '#title' => $this->t('Email layout template'),
       '#open' => !empty($settings['template_email_id']),
-      '#description' => $this->t('Optionally use an existing Mautic email as a design template.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The template provides the full email structure (HTML, CSS, layout). Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>). The AI receives the entire template, replaces each token with content from the Drupal node, and returns the complete HTML — preserving the design exactly.'),
+      '#description' => $this->t('Optionally use an existing Mautic email as a design template.<br><br><strong>Without a template:</strong> The AI-generated content is automatically wrapped in a clean, responsive HTML email document.<br><strong>With a template:</strong> The template provides the full email structure (HTML, CSS, layout). Place a single <code>{ai_content}</code> token where the AI-generated content should be inserted. The content will be programmatically merged into the template at publish time.'),
     ];
 
     $form['template_wrapper']['template_email_id'] = [
@@ -299,7 +287,7 @@ INSTRUCTIONS;
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
           '#title' => $this->t('Template HTML content'),
-          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Replace sample text with <code>{ai:slot_name}</code> tokens (e.g. <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>, <code>{ai:cta_url}</code>). The AI receives the entire template, replaces each token, and returns the complete HTML.'),
+          '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Place a single <code>{ai_content}</code> token where the AI-generated newsletter content should be inserted. The content will be programmatically merged into this template.'),
           '#default_value' => $templateHtml,
           '#format' => 'easy_email',
           '#parents' => ['plugin_settings', 'template_html'],
@@ -314,18 +302,14 @@ INSTRUCTIONS;
           '#parents' => ['plugin_settings', 'template_file_uri'],
         ];
 
-        // Detect {ai:*} content slots in the template.
-        $aiSlots = [];
-        if (preg_match_all('/\{ai:([\w-]+)\}/', $templateHtml, $slotMatches)) {
-          $aiSlots = $slotMatches[1];
-        }
+        // Detect {ai_content} token in the template.
+        $hasToken = str_contains($templateHtml, '{ai_content}');
 
-        if (!empty($aiSlots)) {
-          $slotListHtml = '<code>{ai:' . implode('}</code>, <code>{ai:', $aiSlots) . '}</code>';
+        if ($hasToken) {
           $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--status">'
-              . $this->t('Content slots detected: @slots. The AI will replace each token with generated content and return the complete email HTML.', ['@slots' => $slotListHtml])
+              . $this->t('<code>{ai_content}</code> token detected. The AI-generated content will be inserted at this position in the template.')
               . '</div>',
           ];
         }
@@ -333,7 +317,7 @@ INSTRUCTIONS;
           $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--warning">'
-              . $this->t('No <code>{ai:slot_name}</code> content slots detected. Replace sample text in the template with tokens like <code>{ai:headline}</code>, <code>{ai:body_text}</code>, <code>{ai:cta_label}</code>. The AI will generate text for each slot while keeping the HTML layout intact.')
+              . $this->t('No <code>{ai_content}</code> token detected in the template. Add <code>{ai_content}</code> where you want the AI-generated newsletter content to appear.')
               . '</div>',
           ];
         }
@@ -414,27 +398,19 @@ INSTRUCTIONS;
         );
       }
 
-      // Check for {ai:slot_name} content slots in the template.
-      if (preg_match_all('/\{ai:[\w-]+\}/', $templateHtml, $slotMatches)) {
-        // Content slot mode: AI already returned the complete HTML with tokens
-        // replaced. Use htmlBody directly — no merging needed.
-        if (preg_match('/\{ai:[\w-]+\}/', $htmlBody)) {
-          $this->apiClient->getLogger()->warning('Some {ai:*} content slot tokens may not have been replaced by the AI in the html_body output.');
+      // Merge: replace {ai_content} token with the generated HTML content.
+      if (str_contains($templateHtml, '{ai_content}')) {
+        // Check if html_body is already a full email document (e.g. edited
+        // in the review form with the merged result). If so, use it as-is.
+        $trimmed = trim($htmlBody);
+        $isFullDocument = stripos($trimmed, '<!DOCTYPE') === 0 || stripos($trimmed, '<html') === 0;
+        if (!$isFullDocument) {
+          $htmlBody = str_replace('{ai_content}', $htmlBody, $templateHtml);
         }
       }
       else {
-        // No slots — fallback: single content injection via {custom_content}.
-        $contentToken = $settings['template_content_token'] ?? '{custom_content}';
-        if (str_contains($templateHtml, $contentToken)) {
-          $htmlBody = str_replace($contentToken, $htmlBody, $templateHtml);
-        }
-        else {
-          $this->apiClient->getLogger()->warning('Template email @id has no {ai:*} content slots and no "@token" placeholder. AI-generated content will be used in standalone mode.', [
-            '@id' => $templateEmailId,
-            '@token' => $contentToken,
-          ]);
-          $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
-        }
+        // Template has no {ai_content} token — use content in standalone mode.
+        $htmlBody = $this->buildStandaloneEmailHtml($htmlBody, $subject);
       }
     }
     else {

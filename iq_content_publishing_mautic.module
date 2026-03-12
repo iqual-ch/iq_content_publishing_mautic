@@ -8,6 +8,7 @@
 declare(strict_types=1);
 
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 
 /**
@@ -57,4 +58,80 @@ function iq_content_publishing_mautic_entity_operation(EntityInterface $entity):
   }
 
   return $operations;
+}
+
+/**
+ * Implements hook_form_alter() for the publishing review form.
+ *
+ * Merges the Mautic email template with the AI-generated content snippet
+ * before displaying in the review form, so the user sees and can edit the
+ * complete email HTML (template + AI content merged together).
+ */
+function iq_content_publishing_mautic_form_iq_content_publishing_review_form_alter(array &$form, FormStateInterface $form_state, string $form_id): void {
+  $generatedContents = $form_state->get('generated_contents') ?? [];
+  if (empty($generatedContents)) {
+    return;
+  }
+
+  $platformStorage = \Drupal::entityTypeManager()->getStorage('publishing_platform');
+
+  foreach ($generatedContents as $entryKey => $data) {
+    $platformId = $data['platform_id'] ?? '';
+    if (empty($platformId)) {
+      continue;
+    }
+
+    /** @var \Drupal\iq_content_publishing\Entity\PublishingPlatformConfigInterface|null $platform */
+    $platform = $platformStorage->load($platformId);
+    if (!$platform || $platform->getPluginId() !== 'mautic') {
+      continue;
+    }
+
+    $settings = $platform->getPluginSettings();
+    $templateHtml = _iq_content_publishing_mautic_load_template_html($settings);
+
+    if (empty($templateHtml) || !str_contains($templateHtml, '{ai_content}')) {
+      continue;
+    }
+
+    // Get the AI-generated html_body snippet.
+    $snippet = $data['fields']['html_body'] ?? '';
+    if (empty($snippet)) {
+      continue;
+    }
+
+    // Merge template with the AI-generated content.
+    $mergedHtml = str_replace('{ai_content}', $snippet, $templateHtml);
+
+    // Update the form field's default value to the merged HTML.
+    if (isset($form['platforms'][$entryKey]['fields']['html_body'])) {
+      $form['platforms'][$entryKey]['fields']['html_body']['#default_value'] = $mergedHtml;
+    }
+  }
+}
+
+/**
+ * Loads Mautic template HTML from file storage or config fallback.
+ *
+ * @param array $settings
+ *   The platform plugin settings.
+ *
+ * @return string
+ *   The template HTML, or empty string if unavailable.
+ */
+function _iq_content_publishing_mautic_load_template_html(array $settings): string {
+  if (!empty($settings['template_file_uri'])) {
+    $contents = @file_get_contents($settings['template_file_uri']);
+    if ($contents !== FALSE) {
+      return $contents;
+    }
+  }
+
+  if (!empty($settings['template_html'])) {
+    return is_array($settings['template_html'])
+      ? ($settings['template_html']['value'] ?? '')
+      : (string) $settings['template_html'];
+  }
+
+  return '';
 }
