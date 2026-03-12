@@ -31,16 +31,6 @@ iq_content_publishing_mautic.settings.mautic:
     template_email_id:
       type: integer
       label: 'Mautic template email ID for layout wrapping'
-    template_html:
-      type: mapping
-      label: 'Stored template HTML content'
-      mapping:
-        value:
-          type: string
-          label: 'HTML value'
-        format:
-          type: string
-          label: 'Text format'
     template_file_uri:
       type: string
       label: 'File URI for template HTML storage'
