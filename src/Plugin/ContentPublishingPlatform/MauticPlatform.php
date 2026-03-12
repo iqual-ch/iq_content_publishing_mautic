@@ -577,7 +577,10 @@ INSTRUCTIONS;
    */
   public static function validateSaveTemplateToFile(array &$element, FormStateInterface $form_state, array &$form): void {
     $value = $form_state->getValue($element['#parents']);
-    $html = is_array($value) ? ($value['value'] ?? '') : (string) $value;
+    // text_format elements return ['value' => ..., 'format' => ...].
+    $raw = is_array($value) ? ($value['value'] ?? '') : $value;
+    // Guard against nested arrays — force to string.
+    $html = is_array($raw) ? (string) ($raw['value'] ?? '') : (string) $raw;
 
     if (empty(trim($html))) {
       return;
