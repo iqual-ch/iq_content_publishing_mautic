@@ -5,8 +5,3 @@ services:
       - '@logger.factory'
       - '@entity_type.manager'
       - '@mautic_api.connector'
-
-  iq_content_publishing_mautic.pre_transform_subscriber:
-    class: Drupal\iq_content_publishing_mautic\EventSubscriber\MauticPreTransformSubscriber
-    tags:
-      - { name: event_subscriber }

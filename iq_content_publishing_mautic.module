@@ -10,6 +10,7 @@ declare(strict_types=1);
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
+use League\CommonMark\CommonMarkConverter;
 
 /**
  * Implements hook_entity_operation().
@@ -88,24 +89,34 @@ function iq_content_publishing_mautic_form_iq_content_publishing_review_form_alt
     }
 
     $settings = $platform->getPluginSettings();
+    $plugin = \Drupal::service('plugin.manager.content_publishing_platform')->createInstance($platform->getPluginId());
     $templateHtml = _iq_content_publishing_mautic_load_template_html($settings);
 
-    if (empty($templateHtml) || !str_contains($templateHtml, '{ai_content}')) {
+    if (empty($templateHtml) || !str_contains($templateHtml, '{ai:')) {
       continue;
     }
-
-    // Get the AI-generated html_body snippet.
-    $snippet = $data['fields']['html_body'] ?? '';
-    if (empty($snippet)) {
-      continue;
+    $outputSchema = $plugin->getOutputSchema();
+    $ai_generated_fields = array_filter($outputSchema ?? [], function ($field) {
+      return !empty($field['ai_generated']);
+    });
+    foreach ($ai_generated_fields as $key => $field) {
+      $placeholder = '{ai:' . $key . '}';
+      if (str_contains($templateHtml, $placeholder) && isset($data['fields'][$key])) {
+        $value = is_string($data['fields'][$key]) ? $data['fields'][$key] : '';
+        if (isset($field['markdown']) && $field['markdown'] === TRUE) {
+          // Convert markdown to HTML.
+          $converter = new CommonMarkConverter();
+          $value = $converter->convert($value)->getContent();
+          // Constrain images to fit the email layout.
+          $value = preg_replace('/<img\b/', '<img style="max-width:100%;height:auto;"', $value);
+        }
+        $templateHtml = str_replace($placeholder, $value, $templateHtml);
+      }
     }
-
-    // Merge template with the AI-generated content.
-    $mergedHtml = str_replace('{ai_content}', $snippet, $templateHtml);
 
     // Update the form field's default value to the merged HTML.
     if (isset($form['platforms'][$entryKey]['fields']['html_body'])) {
-      $form['platforms'][$entryKey]['fields']['html_body']['#default_value'] = $mergedHtml;
+      $form['platforms'][$entryKey]['fields']['html_body']['#default_value'] = $templateHtml;
     }
   }
 }

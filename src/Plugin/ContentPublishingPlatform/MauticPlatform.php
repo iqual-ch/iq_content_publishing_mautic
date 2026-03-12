@@ -70,12 +70,69 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
         'max_length' => 255,
         'ai_generated' => TRUE,
       ],
+      'title' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Email title'),
+        'description' => (string) $this->t('The title of the email. This may be used as the main header in the email body, depending on the template.'),
+        'required' => FALSE,
+        'max_length' => 255,
+        'ai_generated' => TRUE,
+      ],
+      'main_title' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Main title/header'),
+        'description' => (string) $this->t('The main title or header of the email newsletter. This is typically the largest text in the email body and should grab the reader\'s attention.'),
+        'required' => FALSE,
+        'max_length' => 255,
+        'ai_generated' => TRUE,
+      ],
+      'cta_text' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Call-to-action text'),
+        'description' => (string) $this->t('The text for the call-to-action (CTA) button in the email. This should be concise and action-oriented, encouraging recipients to click.'),
+        'required' => FALSE,
+        'max_length' => 100,
+        'ai_generated' => TRUE,
+      ],
+      'cta_url' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Call-to-action URL'),
+        'description' => (string) $this->t('The URL that the CTA button should link to. This should be a fully qualified URL (including http:// or https://).'),
+        'required' => FALSE,
+        'max_length' => 2048,
+        'ai_generated' => TRUE,
+      ],
+      'subtitle' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Sub-title'),
+        'description' => (string) $this->t('A sub-title or secondary header for the email. This text is typically smaller than the main title and provides additional context or information.'),
+        'required' => FALSE,
+        'max_length' => 255,
+        'ai_generated' => TRUE,
+      ],
+      'summary' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Summary/teaser'),
+        'description' => (string) $this->t('A brief summary or teaser of the email content. This should be concise and enticing to encourage recipients to read the full email.'),
+        'required' => FALSE,
+        'max_length' => 500,
+        'ai_generated' => TRUE,
+      ],
+      'content' => [
+        'type' => 'hidden',
+        'label' => (string) $this->t('Content'),
+        'description' => (string) $this->t('The main content of the email. This can include multiple paragraphs, bullet points, or other structured content. Use markdown formatting for styling (e.g. **bold**, *italic*, lists).'),
+        'required' => FALSE,
+        'max_length' => 5000,
+        'ai_generated' => TRUE,
+        'markdown' => TRUE,
+      ],
       'html_body' => [
         'type' => 'text_format',
         'label' => (string) $this->t('Email HTML body'),
         'description' => (string) $this->t('The HTML content for the email body. When a template is configured, this content will be merged into the template at the {ai_content} position.'),
         'required' => TRUE,
-        'ai_generated' => TRUE,
+        'ai_generated' => FALSE,
         'format' => 'easy_email',
       ],
       'plain_text' => [
@@ -93,21 +150,20 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
    */
   public function getDefaultAiInstructions(): string {
     return <<<'INSTRUCTIONS'
-Transform the following Drupal content into a professional email newsletter.
+Transform the following Drupal content into a professional email newsletter, extractable as fields according to the output schema provided.
 
 Guidelines:
 - Generate a compelling subject line (under 150 characters) that encourages opens.
 - Create a concise internal name for identification in the Mautic dashboard.
-- For the html_body, generate a well-structured HTML content snippet suitable for
-  embedding inside an email template. Use inline CSS and table-based layout patterns
-  compatible with email clients. Include headings, paragraphs, and links as needed.
-  Do NOT include <!DOCTYPE>, <html>, <head>, or <body> tags — only the inner content.
-- Generate a plain-text version without any HTML markup.
+- For the field title, write a title for the email. This may be used as the main header in the email body, depending on the template
+- For the field main_title, write a main title/header that grabs attention.
+- For the field subtitle, write a sub-title that provides additional context or information.
+- For the field cta_text, write a short button text as call to action.
+- For the field cta_url, provide a fully qualified URL linking to the node.
+- For the field summary, write a summary/teaser that is concise and enticing.
+- For the field content, Write content sections using markdown formatting for styling (e.g. **bold**, *italic*, lists, paragraphs).
+- For the field plain_text, generate a plain-text version without any HTML markup.
 
-Mautic personalization tokens (you may use these in html_body):
-- {contactfield=firstname} — Contact's first name.
-- {contactfield=lastname} — Contact's last name.
-- {contactfield=email} — Contact's email address.
 INSTRUCTIONS;
   }
 
@@ -303,13 +359,13 @@ INSTRUCTIONS;
         ];
 
         // Detect {ai_content} token in the template.
-        $hasToken = str_contains($templateHtml, '{ai_content}');
+        $hasToken = str_contains($templateHtml, '{ai:');
 
         if ($hasToken) {
           $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--status">'
-              . $this->t('<code>{ai_content}</code> token detected. The AI-generated content will be inserted at this position in the template.')
+              . $this->t('<code>{ai:*}</code> token detected. The AI-generated content will be inserted at this position in the template.')
               . '</div>',
           ];
         }
@@ -317,7 +373,7 @@ INSTRUCTIONS;
           $form['template_wrapper']['slot_status'] = [
             '#type' => 'item',
             '#markup' => '<div class="messages messages--warning">'
-              . $this->t('No <code>{ai_content}</code> token detected in the template. Add <code>{ai_content}</code> where you want the AI-generated newsletter content to appear.')
+              . $this->t('No <code>{ai:*}</code> token detected in the template. Add <code>{ai:*}</code> where you want the AI-generated newsletter content to appear.')
               . '</div>',
           ];
         }
