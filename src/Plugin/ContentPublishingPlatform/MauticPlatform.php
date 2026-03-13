@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Drupal\iq_content_publishing_mautic\Plugin\ContentPublishingPlatform;
 
-use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
@@ -35,17 +34,11 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
   protected MauticApiClient $apiClient;
 
   /**
-   * The entity type manager.
-   */
-  protected EntityTypeManagerInterface $entityTypeManager;
-
-  /**
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition): static {
     $instance = parent::create($container, $configuration, $plugin_id, $plugin_definition);
     $instance->apiClient = $container->get('iq_content_publishing_mautic.api_client');
-    $instance->entityTypeManager = $container->get('entity_type.manager');
     return $instance;
   }
 
@@ -133,7 +126,6 @@ final class MauticPlatform extends ContentPublishingPlatformBase {
         'description' => (string) $this->t('The HTML content for the email body. When a template is configured, this content will be merged into the template at the {ai_content} position.'),
         'required' => TRUE,
         'ai_generated' => FALSE,
-        'format' => 'easy_email',
       ],
       'plain_text' => [
         'type' => 'textarea',
@@ -225,6 +217,17 @@ INSTRUCTIONS;
    * {@inheritdoc}
    */
   public function buildSettingsForm(array $form, array $settings, array $credentials = []): array {
+    // HTML format selection at the top.
+    $formatOptions = $this->getAvailableTextFormats();
+    $form['html_format'] = [
+      '#type' => 'select',
+      '#title' => $this->t('HTML text format'),
+      '#description' => $this->t('The text format to use for the email HTML body editor. Choose a format suitable for email content (typically with restricted/email-safe HTML).'),
+      '#options' => $formatOptions,
+      '#default_value' => $settings['html_format'] ?? '',
+      '#empty_option' => $this->t('- Use global default -'),
+    ];
+
     // Build segment options from Mautic API.
     $connectionId = $credentials['connection_id'] ?? '';
     $segmentOptions = [];
@@ -340,12 +343,14 @@ INSTRUCTIONS;
       ];
 
       if (!empty($templateHtml)) {
+        // Determine format: use settings param (for admin form) or fallback to global default.
+        $templateFormat = !empty($settings['html_format']) ? $settings['html_format'] : parent::getHtmlFormat();
         $form['template_wrapper']['template_html'] = [
           '#type' => 'text_format',
           '#title' => $this->t('Template HTML content'),
           '#description' => $this->t('The HTML of the selected Mautic template email. Edit it here — this version will be used at publish time.<br>Place a single <code>{ai_content}</code> token where the AI-generated newsletter content should be inserted. The content will be programmatically merged into this template.'),
           '#default_value' => $templateHtml,
-          '#format' => 'easy_email',
+          '#format' => $templateFormat,
           '#parents' => ['plugin_settings', 'template_html'],
           '#rows' => 20,
           '#element_validate' => [[static::class, 'validateSaveTemplateToFile']],
@@ -400,6 +405,20 @@ INSTRUCTIONS;
     }
 
     return $this->apiClient->validateConnection($credentials['connection_id']);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getHtmlFormat(): string {
+    // Check platform-specific setting first (passed via plugin configuration).
+    $settings = $this->configuration['settings'] ?? [];
+    if (!empty($settings['html_format'])) {
+      return $settings['html_format'];
+    }
+
+    // Fall back to base implementation (global default with smart fallback).
+    return parent::getHtmlFormat();
   }
 
   /**

@@ -10,6 +10,9 @@ iq_content_publishing_mautic.settings.mautic:
   type: mapping
   label: 'Mautic platform settings'
   mapping:
+    html_format:
+      type: string
+      label: 'HTML text format for email content'
     segment_id:
       type: integer
       label: 'Mautic segment ID to send to'
